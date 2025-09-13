@@ -1,0 +1,183 @@
+{
+    "name": "PDF Provider Roster Data Extraction",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "webhook/pdf-upload",
+          "httpMethod": "POST",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-node",
+        "name": "PDF Upload Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [240, 300],
+        "onError": "continueRegularOutput",
+        "webhookId": "pdf-upload-webhook"
+      },
+      {
+        "parameters": {
+          "binaryPropertyName": "data",
+          "encrypted": false
+        },
+        "id": "pdf-extract-node",
+        "name": "Extract PDF Text",
+        "type": "n8n-nodes-base.readPDF",
+        "typeVersion": 1,
+        "position": [460, 300]
+      },
+      {
+        "parameters": {
+          "model": "gpt-4o",
+          "messages": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an expert data extraction AI specialized in processing TriWest Provider Roster documents. Extract ALL available data fields from the provided PDF text according to the TriWest Provider Roster Schema.\n\nIMPORTANT EXTRACTION RULES:\n1. Extract data for ALL fields defined in the schema when available\n2. Use exact format requirements (dates as MM/DD/YYYY, military time as HH:MM, etc.)\n3. Map controlled vocabulary values exactly (Board Certification Status, Term Reasons, Languages)\n4. For required fields (R, RP, RD, etc.), ensure they are populated when data is available\n5. Handle multiple providers/locations if present in the document\n6. Preserve data validation rules and character restrictions\n\nRETURN FORMAT: JSON array of provider records, each containing all extracted fields with proper field names matching the schema. Use null for missing optional fields.\n\nSCHEMA REFERENCE:\n- Request Type: A=Add, C=Change, T=Term\n- Record Type Code: P=Practitioner/Location, L=Location Only  \n- Provider Type: 1=Practitioner, 2=Facilities/Institutions, 4=Groups\n- Location Type: 1=Practitioner, 2=Provider Institution/Facility, 4=Group\n- Dates: MM/DD/YYYY format\n- Times: HH:MM military format\n- Gender: M=Male, F=Female\n- States: Two-character codes (XX)\n- Boolean fields: True/False or 1/0\n- Languages: Must match provided language list\n- Board Certification Status: Must match provided status list\n- Term Reasons: Must match provided reason list\n\nEXTRACT ALL AVAILABLE DATA COMPREHENSIVELY."
+              },
+              {
+                "role": "user", 
+                "content": "Extract provider roster data from this PDF text:\n\n{{ $json.text }}"
+              }
+            ]
+          },
+          "options": {
+            "temperature": 0.1,
+            "maxTokens": 4000
+          }
+        },
+        "id": "ai-extraction-node",
+        "name": "AI Data Extraction",
+        "type": "n8n-nodes-base.openAi",
+        "typeVersion": 1,
+        "position": [680, 300],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse AI response and prepare data for Google Sheets\nconst inputData = $input.first().json;\n\n// Handle different OpenAI response structures\nlet aiResponse;\nif (inputData.message && inputData.message.content) {\n  // Chat completion format\n  aiResponse = inputData.message.content;\n} else if (inputData.choices && inputData.choices[0] && inputData.choices[0].message) {\n  // Standard OpenAI API format\n  aiResponse = inputData.choices[0].message.content;\n} else if (inputData.text) {\n  // Text completion format\n  aiResponse = inputData.text;\n} else {\n  // Fallback - try to use the entire response as string\n  aiResponse = JSON.stringify(inputData);\n}\n\ntry {\n  // Parse the JSON response from AI\n  let extractedData = JSON.parse(aiResponse);\n  \n  // Ensure it's an array\n  if (!Array.isArray(extractedData)) {\n    extractedData = [extractedData];\n  }\n  \n  // Process each provider record\n  const processedRecords = extractedData.map(record => {\n    // Map all fields according to TriWest schema\n    return {\n      // Core provider information\n      'Request Type': record['Request Type'] || 'A',\n      'Record Type Code': record['Record Type Code'] || 'P',\n      'Provider Type': record['Provider Type'] || '1',\n      'Provider First Name': record['Provider First Name'] || '',\n      'Provider Last Name': record['Provider Last Name'] || '',\n      'Provider Middle Name': record['Provider Middle Name'] || '',\n      'Provider Suffix': record['Provider Suffix'] || '',\n      'Provider NPI': record['Provider NPI'] || '',\n      'Provider DOB': record['Provider DOB'] || '',\n      'Provider Gender': record['Provider Gender'] || '',\n      'Provider SSN': record['Provider SSN'] || '',\n      'Provider Degree': record['Provider Degree'] || '',\n      \n      // Credential dates\n      'Provider Initial Credential Date': record['Provider Initial Credential Date'] || '',\n      'Provider Last Credentialed Date': record['Provider Last Credentialed Date'] || '',\n      'Provider Effective Date': record['Provider Effective Date'] || '',\n      'Provider Term Date': record['Provider Term Date'] || '',\n      'Provider Term Reason': record['Provider Term Reason'] || '',\n      \n      // Practice information\n      'Sole Practitioner': record['Sole Practitioner'] || 'False',\n      \n      // License information\n      'Provider License Type': record['Provider License Type'] || '',\n      'Provider License Number': record['Provider License Number'] || '',\n      'Provider License State': record['Provider License State'] || '',\n      'Provider License Issued Date': record['Provider License Issued Date'] || '',\n      'Provider License Expiration Date': record['Provider License Expiration Date'] || '',\n      \n      // Specialty and identifiers\n      'Provider Specialty Taxonomy': record['Provider Specialty Taxonomy'] || '',\n      'Provider CAQH ID': record['Provider CAQH ID'] || '',\n      \n      // Supervising physician (for PAs)\n      'Supervising Physician First Name': record['Supervising Physician First Name'] || '',\n      'Supervising Physician Last Name': record['Supervising Physician Last Name'] || '',\n      'Supervising Physician NPI': record['Supervising Physician NPI'] || '',\n      \n      // Board certification\n      'Provider Board Certification Issuer': record['Provider Board Certification Issuer'] || '',\n      'Provider Board Certification Status': record['Provider Board Certification Status'] || '',\n      'Provider Board Certification Expiration/Recertification Date': record['Provider Board Certification Expiration/Recertification Date'] || '',\n      \n      // Language\n      'Provider Language': record['Provider Language'] || '',\n      \n      // Location information\n      'Location Type': record['Location Type'] || '1',\n      'Primary Address Identifier': record['Primary Address Identifier'] || '1',\n      \n      // Business information\n      'Tax Information W9 Legal Business Name': record['Tax Information W9 Legal Business Name'] || '',\n      'Institution DBA Name': record['Institution DBA Name'] || '',\n      'TIN Type': record['TIN Type'] || 'EIN/TIN',\n      'TIN': record['TIN'] || '',\n      'Location NPI': record['Location NPI'] || '',\n      'Location Specialty Taxonomy': record['Location Specialty Taxonomy'] || '',\n      'Location Telehealth Information': record['Location Telehealth Information'] || '',\n      \n      // Hours of operation\n      'Mon Open Time': record['Mon Open Time'] || '',\n      'Mon Close Time': record['Mon Close Time'] || '',\n      'Tue Open Time': record['Tue Open Time'] || '',\n      'Tue Close Time': record['Tue Close Time'] || '',\n      'Wed Open Time': record['Wed Open Time'] || '',\n      'Wed Close Time': record['Wed Close Time'] || '',\n      'Thu Open Time': record['Thu Open Time'] || '',\n      'Thu Close Time': record['Thu Close Time'] || '',\n      'Fri Open Time': record['Fri Open Time'] || '',\n      'Fri Close Time': record['Fri Close Time'] || '',\n      'Sat Open Time': record['Sat Open Time'] || '',\n      'Sat Close Time': record['Sat Close Time'] || '',\n      'Sun Open Time': record['Sun Open Time'] || '',\n      'Sun Close Time': record['Sun Close Time'] || '',\n      \n      // Location dates\n      'Location Effective Date': record['Location Effective Date'] || '',\n      'Location Initial Credential Date': record['Location Initial Credential Date'] || '',\n      'Location Last Credentialed Date': record['Location Last Credentialed Date'] || '',\n      'Location Term Date': record['Location Term Date'] || '',\n      'Location Term Reason': record['Location Term Reason'] || '',\n      \n      // Physical address\n      'Physical Address Street': record['Physical Address Street'] || '',\n      'Physical City': record['Physical City'] || '',\n      'Physical State': record['Physical State'] || '',\n      'Physical Zip': record['Physical Zip'] || '',\n      'Physical Zip Ext': record['Physical Zip Ext'] || '',\n      'Physical Phone': record['Physical Phone'] || '',\n      'Physical Fax': record['Physical Fax'] || '',\n      'Physical Address Email': record['Physical Address Email'] || '',\n      \n      // Billing address\n      'Billing Address Street': record['Billing Address Street'] || '',\n      'Billing City': record['Billing City'] || '',\n      'Billing State': record['Billing State'] || '',\n      'Billing Zip': record['Billing Zip'] || '',\n      'Billing Zip Ext': record['Billing Zip Ext'] || '',\n      'Billing Phone': record['Billing Phone'] || '',\n      'Billing Fax': record['Billing Fax'] || '',\n      'Billing Address Email': record['Billing Address Email'] || '',\n      \n      // Mailing address\n      'Mailing Address Street': record['Mailing Address Street'] || '',\n      'Mailing City': record['Mailing City'] || '',\n      'Mailing State': record['Mailing State'] || '',\n      'Mailing Zip': record['Mailing Zip'] || '',\n      'Mailing Zip Ext': record['Mailing Zip Ext'] || '',\n      'Mailing Phone': record['Mailing Phone'] || '',\n      'Mailing Fax': record['Mailing Fax'] || '',\n      'Mailing Address Email': record['Mailing Address Email'] || '',\n      \n      // Additional certifications\n      'CMS Certification Number': record['CMS Certification Number'] || '',\n      'DRG': record['DRG'] || '',\n      \n      // Location licensing\n      'Location License Type': record['Location License Type'] || '',\n      'Location License Number': record['Location License Number'] || '',\n      'Location License State': record['Location License State'] || '',\n      'Location License Issued Date': record['Location License Issued Date'] || '',\n      'Location License Expiration Date': record['Location License Expiration Date'] || '',\n      \n      // CLIA information\n      'Location CLIA Number': record['Location CLIA Number'] || '',\n      'Location CLIA Expiration Date': record['Location CLIA Expiration Date'] || '',\n      \n      // Accreditation\n      'Location Accreditation Type': record['Location Accreditation Type'] || '',\n      'Location Accreditation Expiration Date': record['Location Accreditation Expiration Date'] || '',\n      \n      // Patient acceptance\n      'Accepting New Patients': record['Accepting New Patients'] || '',\n      'Accepting New Patients Timeframe FROM': record['Accepting New Patients Timeframe FROM'] || '',\n      'Accepting New Patients Timeframe TO': record['Accepting New Patients Timeframe TO'] || '',\n      \n      // Restrictions\n      'Age Restrictions MINIMUM': record['Age Restrictions MINIMUM'] || '',\n      'Age Restrictions MAXIMUM': record['Age Restrictions MAXIMUM'] || '',\n      'Gender Restrictions': record['Gender Restrictions'] || '',\n      'Urgent Care Info': record['Urgent Care Info'] || ''\n    };\n  });\n  \n  console.log('Processed records count:', processedRecords.length);\n  console.log('First record sample:', JSON.stringify(processedRecords[0], null, 2));\n  return processedRecords.map(record => ({ json: record }));\n  \n} catch (error) {\n  console.error('Error processing AI response:', error);\n  return [{ json: { error: 'Failed to process extracted data: ' + error.message } }];\n}"
+        },
+        "id": "data-processing-node",
+        "name": "Process Extracted Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [900, 300]
+      },
+      {
+        "parameters": {
+          "authentication": "oAuth2",
+          "resource": "sheet",
+          "operation": "appendOrUpdate",
+          "documentId": {
+            "mode": "id",
+            "value": "1nBTGgVqeQVoky9rPvZNVhmYa1XwoBjk0-GvpcB0o_1U"
+          },
+          "sheetName": {
+            "mode": "name",
+            "value": "Template"
+          },
+          "columnToMatchOn": "Provider NPI",
+          "options": {
+            "useAppend": true,
+            "cellFormat": "USER_ENTERED"
+          }
+        },
+        "id": "google-sheets-node",
+        "name": "Update Google Sheets",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1120, 300],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "{\n  \"status\": \"success\",\n  \"message\": \"PDF processed and data extracted to Google Sheets\",\n  \"recordsProcessed\": {{ $json.recordsProcessed || 1 }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}"
+        },
+        "id": "response-node",
+        "name": "Success Response",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [1340, 300],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "{\n  \"status\": \"error\",\n  \"message\": \"Failed to process PDF\",\n  \"error\": \"{{ $json.error }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+          "options": {
+            "responseCode": 500
+          }
+        },
+        "id": "error-response-node", 
+        "name": "Error Response",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [1340, 500],
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "PDF Upload Webhook": {
+        "main": [
+          [
+            {
+              "node": "Extract PDF Text",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract PDF Text": {
+        "main": [
+          [
+            {
+              "node": "AI Data Extraction",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI Data Extraction": {
+        "main": [
+          [
+            {
+              "node": "Process Extracted Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Process Extracted Data": {
+        "main": [
+          [
+            {
+              "node": "Update Google Sheets",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Google Sheets": {
+        "main": [
+          [
+            {
+              "node": "Success Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": true,
+    "settings": {
+      "timezone": "America/New_York"
+    },
+    "versionId": "1.0.0"
+  }
