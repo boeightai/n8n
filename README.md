@@ -51,9 +51,12 @@ This is a specialized development environment for creating, validating, and depl
 ## Getting Started
 
 ### Prerequisites
-- n8n instance (cloud or self-hosted)
+- n8n instance (cloud or self-hosted) - **Version 1.110.1**
 - Claude Code with n8n-MCP integration
 - Access to the configured n8n API endpoint
+
+### Version Compatibility
+This repository is optimized for **n8n Version 1.110.1**. All workflows, node configurations, and documentation are tested against this specific version to ensure maximum accuracy and reduce error rates.
 
 ### Setup
 1. Clone this repository

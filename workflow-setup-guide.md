@@ -7,9 +7,11 @@ This n8n workflow automatically reads content from 8 Google Documents and update
 - `google-docs-to-sheets-workflow.json` - The main workflow file to import into n8n
 
 ## Prerequisites
-1. n8n installation (latest version recommended)
+1. n8n installation (**Version 1.110.1** - tested and validated)
 2. Google account with access to Google Drive, Docs, and Sheets
 3. OAuth2 credentials configured for Google services
+
+> **Note**: This workflow is specifically designed and tested for n8n Version 1.110.1. While it may work with other versions, compatibility is guaranteed only for v1.110.1.
 
 ## Setup Instructions
 
